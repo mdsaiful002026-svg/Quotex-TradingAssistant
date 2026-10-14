@@ -1,13 +1,23 @@
 package com.example.quotexassistant
 
+import android.app.Activity
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.*
 import android.widget.Switch
 import android.widget.Toast
+import java.nio.ByteBuffer
 
 class FloatingService : Service() {
 
@@ -15,12 +25,18 @@ class FloatingService : Service() {
     private lateinit var overlayView: View
     private lateinit var scanSwitch: Switch
 
+    private var mediaProjection: MediaProjection? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+    private var screenWidth = 1080
+    private var screenHeight = 1920
+    private var screenDensity = 1
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize WindowManager
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
 
@@ -42,21 +58,24 @@ class FloatingService : Service() {
             y = 200
         }
 
-        // Add view to screen overlay
         windowManager.addView(overlayView, params)
 
-        // Find scanner switch and handle toggle event
         scanSwitch = overlayView.findViewById(R.id.scanSwitch)
         scanSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
-                Toast.makeText(this, "Scanner Activated. Preparing Screen Capture...", Toast.LENGTH_SHORT).show()
-                // TODO: Trigger Screen Capture & Gemini Analysis here
+                // Request Screen Projection permission activity
+                val intent = Intent(this, ScreenCaptureActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                Toast.makeText(this, "Requesting Screen Capture Permission...", Toast.LENGTH_SHORT).show()
             } else {
+                stopScreenCapture()
                 Toast.makeText(this, "Scanner Stopped", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Enable dragging / moving the overlay window around the screen
+        // Enable dragging of the overlay
         overlayView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
@@ -84,8 +103,73 @@ class FloatingService : Service() {
         })
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val resultCode = intent?.getIntExtra("code", 0) ?: 0
+        val data = intent?.getParcelableExtra<Intent>("data")
+
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+            
+            val metrics = resources.displayMetrics
+            screenWidth = metrics.widthPixels
+            screenHeight = metrics.heightPixels
+            screenDensity = metrics.densityDpi
+
+            setupVirtualDisplay()
+            captureAndAnalyze()
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun setupVirtualDisplay() {
+        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
+        virtualDisplay = mediaProjection?.createVirtualDisplay(
+            "ScreenCapture",
+            screenWidth, screenHeight, screenDensity,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader?.surface, null, null
+        )
+    }
+
+    private fun captureAndAnalyze() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            val image = imageReader?.acquireLatestImage()
+            if (image != null) {
+                val planes = image.planes
+                val buffer: ByteBuffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * screenWidth
+
+                val bitmap = Bitmap.createBitmap(
+                    screenWidth + rowPadding / pixelStride,
+                    screenHeight,
+                    Bitmap.Config.ARGB_8888
+                )
+                bitmap.copyPixelsFromBuffer(buffer)
+                image.close()
+
+                // Call Gemini API to analyze the captured bitmap
+                GeminiHelper.analyzeChart(bitmap) { result ->
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(this, "Result: $result", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } else {
+                Toast.makeText(this, "Capture failed, try again", Toast.LENGTH_SHORT).show()
+            }
+        }, 1000)
+    }
+
+    private fun stopScreenCapture() {
+        virtualDisplay?.release()
+        mediaProjection?.stop()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        stopScreenCapture()
         if (::overlayView.isInitialized) {
             windowManager.removeView(overlayView)
         }
