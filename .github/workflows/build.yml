@@ -1,0 +1,41 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+  
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew || echo "No gradlew found"
+
+    - name: Build with Gradle (Dummy or Debug)
+      run: |
+        echo "Preparing build environment..."
+        # If standard gradle wrapper exists, build apk. Otherwise create a placeholder workflow notice.
+        if [ -f "gradlew" ]; then
+          ./gradlew assembleDebug
+        else
+          echo "Gradle wrapper not found, please ensure basic project files are in place."
+        fi
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
+        if-no-files-found: ignore
