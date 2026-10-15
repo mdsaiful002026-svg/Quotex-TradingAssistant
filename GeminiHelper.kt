@@ -10,7 +10,7 @@ import org.json.JSONObject
 
 object GeminiHelper {
 
-    private const val API_KEY = "YOUR_GEMINI_API_KEY" // Replace with your actual Gemini API Key here
+    private const val API_KEY = "AQ.Ab8RN6Jt_YLe4ZkkmTQ-orWawAKrD_AwHyA0H_LUQwHHcHLG_" // Replace with your actual Gemini API Key here
     private const val MODEL_NAME = "gemini-1.5-flash"
 
     fun analyzeChart(bitmap: Bitmap, onResult: (String) -> Unit) {
