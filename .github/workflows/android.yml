@@ -1,10 +1,10 @@
-name: Build Android APK
+name: Build Android APK Quotex-TradingAssistant
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "Quotex-TradingAssistant" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "Quotex-TradingAssistant" ]
 
 jobs:
   build:
